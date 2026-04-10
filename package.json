@@ -1,7 +1,7 @@
 {
-  "name": "fb-file-bot",
+  "name": "fb-post-comment-bot",
   "version": "1.0.0",
-  "description": "Ultimate Facebook Bot - File Based",
+  "description": "Facebook Post Comment Bot - Multi Cookie Support with 24H Refresh",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -9,10 +9,10 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "fca-mafiya": "latest",
+    "neokex-fca": "latest",
     "ws": "^8.14.2"
   },
-  "keywords": ["facebook", "bot", "fca", "mafiya"],
+  "keywords": ["facebook", "bot", "post", "comment", "neokex-fca", "multi-cookie"],
   "author": "Raj Mishra",
   "license": "MIT"
 }
