@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "neokex-fca": "latest",
+    "neokex-fca": "^1.0.0",
     "ws": "^8.14.2"
   },
   "keywords": ["facebook", "bot", "post", "comment", "neokex-fca", "multi-cookie"],
