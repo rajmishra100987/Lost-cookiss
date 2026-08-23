@@ -1,9 +1,11 @@
-// ==================== POST COMMENT BOT - NEOKEX-FCA ====================
+// ==================== ULTIMATE FB BOT - SIMPLE & STABLE ====================
+// SIRF EK BAAR LOGIN | NO HEALTH CHECK | NO getUserID
+// JO TUMHARI SCRIPT THI, WAHI HAI (Sirf 24H refresh hata diya)
 
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
-const { login } = require('neokex-fca'); // ← CHANGED
+const wiegine = require('fca-mafiya');
 const WebSocket = require('ws');
 const http = require('http');
 
@@ -15,115 +17,36 @@ let taskConfig = null;
 let taskInterval = null;
 let messageSendCount = 0;
 let lastSuccessTime = Date.now();
+let currentApi = null;
 
-// ========== SESSION MANAGER WITH 24H REFRESH ==========
+// ========== SESSION MANAGER - NO HEALTH CHECK ==========
 class SessionManager {
     
     constructor() {
-        this.sessions = [];
-        this.currentIndex = 0;
-        this.lastRefreshTime = Date.now();
-        this.start24HourRefresh();
-        this.startHealthCheck();
+        this.api = null;
+        this.cookie = null;
+        this.failCount = 0;
     }
 
-    start24HourRefresh() {
-        setInterval(async () => {
-            console.log('\n🕐 24H REFRESH CYCLE STARTING...');
-            await this.refreshAllSessions();
-            console.log('✅ 24H REFRESH COMPLETE\n');
-        }, 24 * 60 * 60 * 1000);
-    }
-
-    startHealthCheck() {
-        setInterval(() => {
-            let healthyCount = 0;
-            for (const session of this.sessions) {
-                if (session.api && session.failCount < 5) {
-                    healthyCount++;
-                }
-            }
-            console.log(`💚 Health: ${healthyCount}/${this.sessions.length} sessions OK`);
-        }, 60 * 60 * 1000);
-    }
-
-    async refreshAllSessions() {
-        if (this.sessions.length === 0) return;
+    // SIRF EK BAAR LOGIN
+    async initialLogin(cookie) {
+        console.log(`\n🔐 INITIAL LOGIN...`);
         
-        console.log(`🔄 Refreshing ${this.sessions.length} sessions...`);
-        
-        for (let i = 0; i < this.sessions.length; i++) {
-            const session = this.sessions[i];
-            console.log(`🔄 Refreshing session ${i + 1}/${this.sessions.length}...`);
-            
-            const newApi = await this.loginWithCookie(session.cookie, i);
-            if (newApi) {
-                if (session.api) {
-                    try { session.api.logout(); } catch(e) {}
-                }
-                session.api = newApi;
-                session.failCount = 0;
-                session.healthy = true;
-                console.log(`✅ Session ${i + 1} refreshed`);
-            }
-            
-            await new Promise(resolve => setTimeout(resolve, 3000));
-        }
-        
-        this.lastRefreshTime = Date.now();
-    }
-
-    async createSessions(cookiesArray) {
-        if (!cookiesArray || cookiesArray.length === 0) {
-            console.log('❌ No cookies provided');
-            return false;
-        }
-        
-        console.log(`\n📱 Creating ${cookiesArray.length} sessions...`);
-        
-        for (let i = 0; i < cookiesArray.length; i++) {
-            console.log(`\n[${i + 1}/${cookiesArray.length}] Processing cookie...`);
-            
-            const api = await this.loginWithCookie(cookiesArray[i], i);
-            if (api) {
-                this.sessions.push({
-                    index: i,
-                    api: api,
-                    cookie: cookiesArray[i],
-                    healthy: true,
-                    failCount: 0,
-                    createdAt: Date.now()
-                });
-                console.log(`✅ Session ${i + 1} CREATED!`);
-            } else {
-                console.log(`❌ Session ${i + 1} FAILED`);
-            }
-            
-            await new Promise(resolve => setTimeout(resolve, 3000));
-        }
-        
-        console.log(`\n📊 SUMMARY: ${this.sessions.length}/${cookiesArray.length} sessions created`);
-        return this.sessions.length > 0;
-    }
-
-    loginWithCookie(cookie, index) {
         return new Promise((resolve) => {
             const timeout = setTimeout(() => {
-                console.log(`⏰ Session ${index + 1} timeout (30s)`);
+                console.log(`⏰ Login timeout`);
                 resolve(null);
             }, 30000);
             
-            // neokex-fca login with cookie
-            login({ cookie: cookie }, { 
+            wiegine.login(cookie, { 
                 logLevel: "silent", 
                 forceLogin: true,
-                listenEvents: false,
                 selfListen: false
             }, (err, api) => {
                 clearTimeout(timeout);
                 
                 if (err) {
-                    console.log(`❌ Login error:`, err.error || err.message);
+                    console.log(`❌ Login failed:`, err.error || err.message);
                     resolve(null);
                     return;
                 }
@@ -134,92 +57,136 @@ class SessionManager {
                     return;
                 }
                 
-                console.log(`✅ Session ${index + 1} API ready`);
+                this.api = api;
+                this.cookie = cookie;
+                console.log(`✅ Login successful!`);
                 resolve(api);
             });
         });
     }
 
-    getNextSession() {
-        if (this.sessions.length === 0) {
-            console.log('❌ No sessions available');
-            return null;
-        }
-        
-        for (let i = 0; i < this.sessions.length; i++) {
-            const idx = (this.currentIndex + i) % this.sessions.length;
-            const session = this.sessions[idx];
-            
-            if (session.api && session.failCount < 5) {
-                this.currentIndex = (idx + 1) % this.sessions.length;
-                console.log(`📤 Using session ${idx + 1}/${this.sessions.length}`);
-                return session.api;
-            }
-        }
-        
-        return this.sessions[0]?.api || null;
-    }
-
-    markSessionFailed(api) {
-        const session = this.sessions.find(s => s.api === api);
-        if (session) {
-            session.failCount++;
-            session.healthy = false;
-            console.log(`⚠️ Session ${session.index + 1} failed (${session.failCount}/5)`);
-        }
+    getApi() {
+        return this.api;
     }
 
     getStats() {
         return {
-            total: this.sessions.length,
-            healthy: this.sessions.filter(s => s.failCount < 5).length,
-            failed: this.sessions.filter(s => s.failCount >= 5).length,
-            nextRefresh: this.lastRefreshTime + (24 * 60 * 60 * 1000)
+            loggedIn: !!this.api,
+            failCount: this.failCount
         };
     }
 }
 
 const sessionManager = new SessionManager();
 
-// ========== POST COMMENT FUNCTION ==========
-async function postComment(api, message, postId) {
-    return new Promise((resolve) => {
-        let attempts = 0;
-        const maxAttempts = 2;
+// ========== 15-DIGIT CHAT SUPPORT ==========
+function is15DigitChat(threadID) {
+    return /^\d{15}$/.test(String(threadID));
+}
+
+function sendTo15DigitChat(api, message, threadID, callback, retryAttempt = 0) {
+    const max15DigitRetries = 5;
+    
+    try {
+        api.sendMessage({ body: message }, threadID, (err) => {
+            if (err) {
+                const numericThreadID = parseInt(threadID);
+                api.sendMessage(message, numericThreadID, (err2) => {
+                    if (err2) {
+                        if (retryAttempt < max15DigitRetries) {
+                            setTimeout(() => {
+                                sendTo15DigitChat(api, message, threadID, callback, retryAttempt + 1);
+                            }, 3000);
+                        } else {
+                            callback(err2);
+                        }
+                    } else {
+                        callback(null);
+                    }
+                });
+            } else {
+                callback(null);
+            }
+        });
+    } catch (error) {
+        if (retryAttempt < max15DigitRetries) {
+            setTimeout(() => {
+                sendTo15DigitChat(api, message, threadID, callback, retryAttempt + 1);
+            }, 3000);
+        } else {
+            callback(error);
+        }
+    }
+}
+
+function formatUptime(seconds) {
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    const parts = [];
+    if (days > 0) parts.push(`${days}d`);
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0) parts.push(`${minutes}m`);
+    if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
+    return parts.join(' ');
+}
+
+// ========== MESSAGE SENDER ==========
+class MessageSender {
+    
+    async sendMessage(finalMessage, threadID) {
+        const api = sessionManager.getApi();
+        if (!api) {
+            console.log(`❌ No API available`);
+            return false;
+        }
         
-        const tryPost = () => {
-            const timeout = setTimeout(() => {
-                if (attempts < maxAttempts) {
-                    attempts++;
-                    console.log(`🔄 Retry ${attempts}/${maxAttempts}`);
-                    tryPost();
-                } else {
-                    resolve(false);
-                }
-            }, 20000);
+        return new Promise((resolve) => {
+            const is15Digit = is15DigitChat(threadID);
+            let attempts = 0;
+            const maxAttempts = 2;
             
-            // POST COMMENT - same as sendMessage but with postId
-            api.sendMessage(message, postId, (err, data) => {
-                clearTimeout(timeout);
-                
-                if (!err) {
-                    console.log(`✅ Comment posted!`);
-                    resolve(true);
-                } else {
-                    console.log(`❌ Comment error:`, err.error || err);
+            const trySend = () => {
+                const timeout = setTimeout(() => {
                     if (attempts < maxAttempts) {
                         attempts++;
-                        setTimeout(tryPost, 3000);
+                        console.log(`🔄 Retry ${attempts}/${maxAttempts}`);
+                        trySend();
                     } else {
                         resolve(false);
                     }
+                }, 20000);
+                
+                const callback = (err) => {
+                    clearTimeout(timeout);
+                    if (!err) {
+                        messageSendCount++;
+                        lastSuccessTime = Date.now();
+                        resolve(true);
+                    } else {
+                        if (attempts < maxAttempts) {
+                            attempts++;
+                            setTimeout(trySend, 3000);
+                        } else {
+                            resolve(false);
+                        }
+                    }
+                };
+                
+                if (is15Digit) {
+                    sendTo15DigitChat(api, finalMessage, threadID, callback);
+                } else {
+                    api.sendMessage(finalMessage, threadID, callback);
                 }
-            });
-        };
-        
-        tryPost();
-    });
+            };
+            
+            trySend();
+        });
+    }
 }
+
+const messageSender = new MessageSender();
 
 // ========== TASK RUNNER ==========
 async function startTask() {
@@ -229,25 +196,35 @@ async function startTask() {
         return false;
     }
     
-    const { cookies, delay, postId, hatersname, lastname, messages } = fileData;
+    const { cookies, delay, convoId, hatersname, lastname, messages } = fileData;
     
-    console.log(`\n🔐 Creating sessions from ${cookies.length} cookies...`);
-    const sessionsCreated = await sessionManager.createSessions(cookies);
+    // Pehli valid cookie se login
+    let selectedCookie = null;
+    for (const cookie of cookies) {
+        console.log(`\n🔐 Trying login...`);
+        const api = await sessionManager.initialLogin(cookie);
+        if (api) {
+            selectedCookie = cookie;
+            console.log(`✅ Login successful!`);
+            break;
+        }
+    }
     
-    if (!sessionsCreated) {
-        console.log('❌ No valid sessions created');
+    if (!selectedCookie) {
+        console.log('❌ No valid cookie found');
         return false;
     }
     
     taskConfig = {
-        postId,
+        convoId,
         messages,
         hatersname,
         lastname,
         delay,
         currentMessageIndex: 0,
         loopCount: 0,
-        totalSent: 0
+        totalSent: 0,
+        running: true
     };
     
     if (taskInterval) {
@@ -255,12 +232,10 @@ async function startTask() {
     }
     
     taskInterval = setInterval(async () => {
-        await postOneComment();
+        await sendOneMessage();
     }, delay * 1000);
     
-    console.log(`\n🚀 POST COMMENT TASK STARTED!`);
-    console.log(`📊 Sessions: ${sessionManager.getStats().total}`);
-    console.log(`📝 Post ID: ${postId}`);
+    console.log(`\n🚀 TASK STARTED!`);
     console.log(`⏱️ Delay: ${delay}s`);
     console.log(`💬 Messages: ${taskConfig.messages.length}`);
     console.log(`👥 Names: ${taskConfig.hatersname.length} + ${taskConfig.lastname.length}`);
@@ -268,16 +243,10 @@ async function startTask() {
     return true;
 }
 
-async function postOneComment() {
-    if (!taskConfig) return;
+async function sendOneMessage() {
+    if (!taskConfig || !taskConfig.running) return;
     
     try {
-        const api = sessionManager.getNextSession();
-        if (!api) {
-            console.log(`❌ No session available`);
-            return;
-        }
-        
         const messages = taskConfig.messages;
         if (messages.length === 0) return;
         
@@ -286,7 +255,7 @@ async function postOneComment() {
         const lastName = taskConfig.lastname[Math.floor(Math.random() * taskConfig.lastname.length)] || '';
         const finalMessage = `${hatersName} ${message} ${lastName}`.trim();
         
-        const success = await postComment(api, finalMessage, taskConfig.postId);
+        const success = await messageSender.sendMessage(finalMessage, taskConfig.convoId);
         
         if (success) {
             taskConfig.totalSent++;
@@ -294,15 +263,12 @@ async function postOneComment() {
             
             if (taskConfig.currentMessageIndex === 0) {
                 taskConfig.loopCount++;
-                console.log(`🔄 Loop #${taskConfig.loopCount} completed (${taskConfig.totalSent} total comments)`);
+                console.log(`🔄 Loop #${taskConfig.loopCount} completed (${taskConfig.totalSent} total messages)`);
             }
             
-            console.log(`✅ [${taskConfig.totalSent}] Comment posted`);
-            lastSuccessTime = Date.now();
-            messageSendCount++;
+            console.log(`✅ [${taskConfig.totalSent}] Message sent`);
         } else {
-            console.log(`❌ Comment failed`);
-            sessionManager.markSessionFailed(api);
+            console.log(`❌ Message failed`);
         }
         
     } catch (error) {
@@ -329,17 +295,10 @@ function readTime() {
     return delay;
 }
 
-function readPostId() {
-    const postPath = path.join(__dirname, 'post.txt'); // ← NEW FILE
-    if (!fs.existsSync(postPath)) {
-        // Try convo.txt as fallback
-        const convoPath = path.join(__dirname, 'convo.txt');
-        if (fs.existsSync(convoPath)) {
-            return fs.readFileSync(convoPath, 'utf8').trim();
-        }
-        return null;
-    }
-    return fs.readFileSync(postPath, 'utf8').trim();
+function readConvo() {
+    const convoPath = path.join(__dirname, 'convo.txt');
+    if (!fs.existsSync(convoPath)) return null;
+    return fs.readFileSync(convoPath, 'utf8').trim();
 }
 
 function readHatersName() {
@@ -363,23 +322,23 @@ function readMessages() {
 function readAllFiles() {
     const cookies = readCookies();
     const delay = readTime();
-    const postId = readPostId();
+    const convoId = readConvo();
     const hatersname = readHatersName();
     const lastname = readLastname();
     const messages = readMessages();
     
     if (!cookies) { console.log('❌ cookies.txt missing'); return null; }
     if (!delay) { console.log('❌ time.txt missing'); return null; }
-    if (!postId) { console.log('❌ post.txt or convo.txt missing'); return null; }
+    if (!convoId) { console.log('❌ convo.txt missing'); return null; }
     if (!hatersname || hatersname.length === 0) { console.log('❌ hatersname.txt missing'); return null; }
     if (!lastname || lastname.length === 0) { console.log('❌ lastname.txt missing'); return null; }
     if (!messages || messages.length === 0) { console.log('❌ File.txt missing'); return null; }
     
-    return { cookies, delay, postId, hatersname, lastname, messages };
+    return { cookies, delay, convoId, hatersname, lastname, messages };
 }
 
 function watchFiles() {
-    const files = ['cookies.txt', 'time.txt', 'post.txt', 'convo.txt', 'hatersname.txt', 'lastname.txt', 'File.txt'];
+    const files = ['cookies.txt', 'time.txt', 'convo.txt', 'hatersname.txt', 'lastname.txt', 'File.txt'];
     files.forEach(file => {
         const filePath = path.join(__dirname, file);
         if (fs.existsSync(filePath)) {
@@ -398,61 +357,92 @@ async function restartTask() {
         clearInterval(taskInterval);
         taskInterval = null;
     }
-    sessionManager.sessions = [];
-    sessionManager.currentIndex = 0;
+    taskConfig = null;
     await startTask();
-}
-
-function formatUptime(seconds) {
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    const parts = [];
-    if (days > 0) parts.push(`${days}d`);
-    if (hours > 0) parts.push(`${hours}h`);
-    if (minutes > 0) parts.push(`${minutes}m`);
-    if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
-    return parts.join(' ');
 }
 
 // ========== EXPRESS SERVER ==========
 app.use(express.json());
 
 app.get('/health', (req, res) => {
-    const stats = sessionManager.getStats();
     res.json({
         status: 'ok',
-        type: 'post-comment',
         uptime: process.uptime(),
-        sessions: stats,
-        commentsSent: taskConfig?.totalSent || 0,
+        messagesSent: taskConfig?.totalSent || 0,
         loops: taskConfig?.loopCount || 0
     });
 });
 
 app.get('/', (req, res) => {
-    const stats = sessionManager.getStats();
     res.send(`
         <html>
             <head>
-                <title>FB POST COMMENT BOT</title>
+                <title>FB BOT</title>
                 <meta http-equiv="refresh" content="30">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
                 <style>
-                    body { font-family: Arial; text-align: center; padding: 20px; background: #0a0e27; color: white; }
-                    .box { background: #1a1a3e; border-radius: 15px; padding: 20px; max-width: 500px; margin: 0 auto; }
+                    body {
+                        font-family: 'Courier New', monospace;
+                        background: linear-gradient(135deg, #0a0e27 0%, #1a1a3e 100%);
+                        color: #00ff88;
+                        padding: 20px;
+                        text-align: center;
+                    }
+                    .container {
+                        max-width: 500px;
+                        margin: 0 auto;
+                        background: rgba(0,0,0,0.7);
+                        border-radius: 20px;
+                        padding: 20px;
+                        border: 1px solid #00ff88;
+                    }
+                    h1 { color: #00ff88; text-shadow: 0 0 10px #00ff88; }
+                    .status { font-size: 24px; margin: 20px 0; }
+                    .online { color: #00ff88; animation: pulse 1s infinite; }
+                    @keyframes pulse {
+                        0% { opacity: 1; }
+                        50% { opacity: 0.5; }
+                        100% { opacity: 1; }
+                    }
+                    .stats {
+                        text-align: left;
+                        background: #000;
+                        padding: 15px;
+                        border-radius: 10px;
+                        margin: 15px 0;
+                    }
+                    .stat-item { margin: 8px 0; font-family: monospace; }
                     .green { color: #00ff88; }
-                    .stats { text-align: left; margin-top: 20px; }
+                    .footer {
+                        margin-top: 20px;
+                        font-size: 11px;
+                        color: #666;
+                    }
                 </style>
             </head>
             <body>
-                <div class="box">
-                    <h1>💬 FB POST COMMENT BOT <span class="green">● ONLINE</span></h1>
+                <div class="container">
+                    <h1>🤖 FB BOT</h1>
+                    <h2>SIMPLE & STABLE</h2>
+                    
+                    <div class="status">
+                        <span class="online">● ONLINE</span>
+                    </div>
+                    
                     <div class="stats">
-                        <p>📊 Sessions: ${stats.total} (${stats.healthy} healthy)</p>
-                        <p>💬 Comments Sent: ${taskConfig?.totalSent || 0}</p>
-                        <p>🔄 Loops: ${taskConfig?.loopCount || 0}</p>
-                        <p>⏱️ Uptime: ${formatUptime(Math.floor(process.uptime()))}</p>
+                        <div class="stat-item">📊 STATISTICS</div>
+                        <div class="stat-item">├─ Messages Sent: ${taskConfig?.totalSent || 0}</div>
+                        <div class="stat-item">└─ Loops: ${taskConfig?.loopCount || 0}</div>
+                    </div>
+                    
+                    <div class="stats">
+                        <div class="stat-item">⏱️ SYSTEM</div>
+                        <div class="stat-item">├─ Uptime: ${formatUptime(Math.floor(process.uptime()))}</div>
+                        <div class="stat-item">└─ Status: Running</div>
+                    </div>
+                    
+                    <div class="footer">
+                        SINGLE LOGIN | NO EXTRA API CALLS | STABLE
                     </div>
                 </div>
             </body>
@@ -465,30 +455,24 @@ const wss = new WebSocket.Server({ server });
 
 wss.on('connection', (ws) => {
     console.log('🔌 WebSocket connected');
-    ws.send(JSON.stringify({ type: 'connected', message: 'Post comment bot is alive' }));
+    ws.send(JSON.stringify({ type: 'connected', message: 'Bot is alive' }));
 });
-
-// ========== INSTALL NEOKEX-FCA FIRST ==========
-console.log(`
-╔══════════════════════════════════════════════════════════╗
-║  ⚠️  IMPORTANT: Install neokex-fca first!              ║
-║                                                          ║
-║  npm uninstall fca-mafiya                               ║
-║  npm install neokex-fca                                 ║
-║                                                          ║
-║  Then create post.txt with your post ID:                ║
-║  61581599190276_122134296987053306                      ║
-╚══════════════════════════════════════════════════════════╝
-`);
 
 // ========== START ==========
 server.listen(PORT, '0.0.0.0', async () => {
-    console.log(`\n${'='.repeat(50)}`);
-    console.log(`💬 POST COMMENT BOT`);
-    console.log(`✅ Library: neokex-fca (supports post comments)`);
-    console.log(`📝 Post ID format: {userId}_{postId}`);
-    console.log(`🌐 http://localhost:${PORT}`);
-    console.log(`${'='.repeat(50)}\n`);
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`🔥 ULTIMATE FB BOT - SIMPLE & STABLE`);
+    console.log(`${'='.repeat(60)}`);
+    console.log(`🌐 Web UI: http://localhost:${PORT}`);
+    console.log(`💚 Health: http://localhost:${PORT}/health`);
+    console.log(`${'='.repeat(60)}`);
+    console.log(`\n✅ FEATURES:`);
+    console.log(`   ✅ SINGLE LOGIN (Ek baar)`);
+    console.log(`   ✅ NO extra API calls`);
+    console.log(`   ✅ NO getUserID health check`);
+    console.log(`   ✅ NO session refresh (cookie valid rahegi)`);
+    console.log(`   ✅ Simple & Stable`);
+    console.log(`${'='.repeat(60)}\n`);
     
     watchFiles();
     
